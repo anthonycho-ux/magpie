@@ -205,8 +205,8 @@ func TestKeyReadsEightAtOnce(t *testing.T) {
 	most = heldAtOnce(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"limited":false}`)) }, func() {
 		cards = len(remoteKeyCards(context.Background(), remote, true, ""))
 	})
-	if most > keyReadsAtOnce || cards != 31 {
-		t.Errorf("remote limits: %d cards, %d asked at once, want 31 cards and at most %d", cards, most, keyReadsAtOnce)
+	if most > keyReadsAtOnce || cards != 0 {
+		t.Errorf("remote limits: %d cards, %d asked at once, want none (no key has a limit) and at most %d", cards, most, keyReadsAtOnce)
 	}
 }
 

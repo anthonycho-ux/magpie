@@ -327,7 +327,7 @@ func TestRemoteMagpieKeyLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.KeyName = "laptop"
-	p.Keys = []KeyAccount{{Name: "spare", Key: "sk-magpie-spare"}}
+	p.Keys = []KeyAccount{{Name: "spare", Key: "sk-magpie-spare"}, {Name: "broken", Key: "sk-magpie-broken"}}
 	if err := Save(*p); err != nil {
 		t.Fatal(err)
 	}
@@ -347,22 +347,24 @@ func TestRemoteMagpieKeyLimits(t *testing.T) {
 		l.Windows[1].Name != "Spend today" || l.Windows[1].Amount != 0.46 || l.Windows[1].Limit != 2 || l.Windows[1].Unit != "USD" {
 		t.Errorf("laptop windows: %+v", l.Windows)
 	}
-	s := ks["spare"]
-	if s.Error != "" || s.GatewayKey == nil || s.GatewayKey.Limited || len(s.Windows) != 1 || !s.Windows[0].Unlimited {
-		t.Errorf("a key with no limit: %+v", s)
+	if s, ok := ks["spare"]; ok {
+		t.Errorf("a key with no limit still has a card: %+v", s)
+	}
+	if b := ks["broken"]; b.Error == "" || b.GatewayKey != nil || len(b.Windows) != 0 {
+		t.Errorf("a key whose limit couldn't be read: %+v", b)
 	}
 	// kept like the remote's cards: asked once in remoteCardsFor
 	RemoteCards(ctx)
-	if peer.limitAsks != 2 {
-		t.Errorf("asked %d times, want 2 (once per key)", peer.limitAsks)
+	if peer.limitAsks != 3 {
+		t.Errorf("asked %d times, want 3 (once per key)", peer.limitAsks)
 	}
 	// its refresh reads again the key named
 	peer.Lock()
 	peer.limits["sk-magpie-office"] = `{"limited":true,"key":"laptop","limit":{"period":"day","reset":"2026-10-12T00:00:00Z","tokens":2000,"tokenLimit":10000,"tokensLeft":8000}}`
 	peer.Unlock()
 	RefreshUsage(ctx, "office/"+remoteKeyCard, "laptop")
-	if peer.limitAsks != 3 {
-		t.Errorf("refresh asked %d times in all, want 3", peer.limitAsks)
+	if peer.limitAsks != 4 {
+		t.Errorf("refresh asked %d times in all, want 4", peer.limitAsks)
 	}
 	if l := keyCards(RemoteCards(ctx))["laptop"]; len(l.Windows) != 1 || l.Windows[0].Amount != 2000 || l.GatewayKey == nil || *l.GatewayKey.TokensLeft != 8000 {
 		t.Errorf("after refresh: %+v", l)
@@ -379,7 +381,7 @@ func TestRemoteMagpieKeyLimits(t *testing.T) {
 	// with nothing read, the card says why: never "no limit" or zeros
 	ForgetRemoteCardsForTest()
 	ks = keyCards(RemoteCards(ctx))
-	for _, n := range []string{"laptop", "spare"} {
+	for _, n := range []string{"laptop", "spare", "broken"} {
 		if q := ks[n]; q.Error == "" || q.GatewayKey != nil || len(q.Windows) != 0 {
 			t.Errorf("%s unread: %+v", n, q)
 		}
@@ -390,7 +392,7 @@ func TestRemoteMagpieKeyLimits(t *testing.T) {
 	peer.status, peer.limits = 0, nil
 	peer.Unlock()
 	ks = keyCards(RemoteCards(ctx))
-	if len(ks) != 2 {
+	if len(ks) != 3 {
 		t.Errorf("old magpie: %+v", ks)
 	}
 	for n, q := range ks {

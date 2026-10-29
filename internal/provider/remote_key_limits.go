@@ -134,7 +134,23 @@ func remoteKeyCards(ctx context.Context, p Provider, fresh bool, only string) []
 		}()
 	}
 	wg.Wait()
-	return out
+	return keepKeyCards(out)
+}
+
+// keepKeyCards drops the cards of keys that have nothing to say: a key the
+// remote holds to no limit renders as one "no limit" bar. A key whose limit
+// could not be read keeps its card, since an error is not "no limit".
+// keyLimitCard also returns Limited == false for a key the remote calls
+// limited but whose cap it cannot read; that renders as the identical
+// "no limit" card, so it is dropped too.
+func keepKeyCards(out []SubscriptionQuota) []SubscriptionQuota {
+	kept := out[:0]
+	for _, q := range out {
+		if q.Error != "" || (q.GatewayKey != nil && q.GatewayKey.Limited) {
+			kept = append(kept, q)
+		}
+	}
+	return kept
 }
 
 func remoteKeyCardOf(ctx context.Context, p Provider, name, key string, fresh bool) SubscriptionQuota {

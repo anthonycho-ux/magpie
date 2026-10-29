@@ -115,3 +115,63 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
     });
   }
 }
+
+// A remote magpie's gateway keys that say nothing: a key the remote holds to
+// no limit renders as one "no limit" bar, so the backend does not send its
+// card at all and no "Gateway keys" card appears. A key with a limit still
+// shows, and a key whose limit could not be read still shows with its error —
+// an error is not "no limit". The backend filter is unit-tested in
+// internal/provider/remote_key_limits_cards_test.go; this pins what the reader
+// sees of each answer.
+for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
+  test(`${engine} en: no Gateway keys card when a remote's keys say nothing`, async (t) => {
+    const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
+    t.after(() => browser.close());
+    const errors = [];
+    const page = await (await browser.newContext({ viewport: { width: 900, height: 700 }, reducedMotion: "reduce" })).newPage();
+    page.setDefaultTimeout(5000);
+    page.on("pageerror", (e) => errors.push(e.message));
+    const now = Date.now();
+    const state = {
+      quotas: [
+        { provider: "office/codex", name: "Codex · Office", icon: "openai", kind: "subscription", from: "Office", readAt: iso(now - 40 * M),
+          windows: [{ name: "5 hours", used: 30, resetsAt: iso(now + 2 * H) }] },
+      ],
+      gets: 0, refreshes: [], gate: Promise.resolve(),
+    };
+    await page.route("**/*", serve("en", state));
+    await page.goto("http://magpie.test/?view=usage");
+
+    await page.locator(".subscription-card", { hasText: "Codex · Office" }).waitFor();
+    assert.equal(await page.locator(".subscription-card", { hasText: "Gateway keys" }).count(), 0);
+    assert.deepEqual(errors, []);
+  });
+
+  test(`${engine} en: a limited key and an error key still show`, async (t) => {
+    const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
+    t.after(() => browser.close());
+    const errors = [];
+    const page = await (await browser.newContext({ viewport: { width: 900, height: 700 }, reducedMotion: "reduce" })).newPage();
+    page.setDefaultTimeout(5000);
+    page.on("pageerror", (e) => errors.push(e.message));
+    const now = Date.now();
+    const card = { provider: "office/~keys", name: "Office", icon: "magpie", from: "Office", kind: "plan" };
+    const state = {
+      quotas: [
+        { ...card, user: "limited", readAt: iso(now - 2 * M),
+          gatewayKey: { limited: true, period: "day", reset: iso(now + 5 * H), calls: 1, tokensLeft: 9000 },
+          windows: [{ name: "Tokens today", used: 10, amount: 1000, limit: 10000, unit: "tokens", resetsAt: iso(now + 5 * H) }] },
+        { ...card, user: "unreadable", windows: [], error: "That computer's magpie is too old to tell this key's limit — update magpie there" },
+      ],
+      gets: 0, refreshes: [], gate: Promise.resolve(),
+    };
+    await page.route("**/*", serve("en", state));
+    await page.goto("http://magpie.test/?view=usage");
+
+    const keys = page.locator(".subscription-card", { hasText: "Gateway keys · Office" });
+    await keys.waitFor();
+    assert.equal(await keys.count(), 1);
+    assert.equal(await keys.locator(".subscription-error").count(), 1);
+    assert.deepEqual(errors, []);
+  });
+}
